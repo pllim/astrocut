@@ -22,138 +22,8 @@ from astropy.visualization import (SqrtStretch, LogStretch, AsinhStretch, SinhSt
 from PIL import Image
 
 from . import __version__
+from .utils.utils import parse_size_input, get_cutout_limits, get_cutout_wcs, remove_sip_coefficients
 from .exceptions import InputWarning, DataWarning, InvalidQueryError, InvalidInputError
-
-
-#### FUNCTIONS FOR UTILS ####
-def _get_cutout_limits(img_wcs, center_coord, cutout_size):
-    """
-    Takes the center coordinates, cutout size, and the wcs from
-    which the cutout is being taken and returns the x and y pixel limits
-    for the cutout.
-
-    Note: This function does no bounds checking, so the returned limits are not 
-          guaranteed to overlap the original image.
-
-    Parameters
-    ----------
-    img_wcs : `~astropy.wcs.WCS`
-        The WCS for the image that the cutout is being cut from.
-    center_coord : `~astropy.coordinates.SkyCoord`
-        The central coordinate for the cutout
-    cutout_size : array
-        [nx,ny] in with ints (pixels) or astropy quantities
-
-    Returns
-    -------
-    response : `numpy.array`
-        The cutout pixel limits in an array of the form [[xmin,xmax],[ymin,ymax]]
-    """
-        
-    # Note: This is returning the center pixel in 1-up
-    try:
-        center_pixel = center_coord.to_pixel(img_wcs, 1)
-    except wcs.NoConvergence:  # If wcs can't converge, center coordinate is far from the footprint
-        raise InvalidQueryError("Cutout location is not in image footprint!")
-
-    # For some reason you can sometimes get nans without a no convergance error
-    if np.isnan(center_pixel).all():
-        raise InvalidQueryError("Cutout location is not in image footprint!")
-    
-    lims = np.zeros((2, 2), dtype=int)
-
-    for axis, size in enumerate(cutout_size):
-        
-        if not isinstance(size, u.Quantity):  # assume pixels
-            dim = size / 2
-        elif size.unit == u.pixel:  # also pixels
-            dim = size.value / 2
-        elif size.unit.physical_type == 'angle':
-            pixel_scale = u.Quantity(wcs.utils.proj_plane_pixel_scales(img_wcs)[axis],
-                                     img_wcs.wcs.cunit[axis])
-            dim = (size / pixel_scale).decompose() / 2
-
-        lims[axis, 0] = int(np.round(center_pixel[axis] - 1 - dim))
-        lims[axis, 1] = int(np.round(center_pixel[axis] - 1 + dim))
-
-        # The case where the requested area is so small it rounds to zero
-        if lims[axis, 0] == lims[axis, 1]:
-            lims[axis, 0] = int(np.floor(center_pixel[axis] - 1))
-            lims[axis, 1] = lims[axis, 0] + 1
-
-    return lims
-
-        
-def _get_cutout_wcs(img_wcs, cutout_lims):
-    """
-    Starting with the full FFI WCS and adjusting it for the cutout WCS.
-    Adjusts CRPIX values and adds physical WCS keywords.
-
-    Parameters
-    ----------
-    img_wcs : `~astropy.wcs.WCS`
-        WCS for the image the cutout is being cut from.
-    cutout_lims : `numpy.array`
-        The cutout pixel limits in an array of the form [[ymin,ymax],[xmin,xmax]]
-
-    Returns
-    --------
-    response :  `~astropy.wcs.WCS`
-        The cutout WCS object including SIP distortions if present.
-    """
-
-    # relax = True is important when the WCS has sip distortions, otherwise it has no effect
-    wcs_header = img_wcs.to_header(relax=True) 
-
-    # Adjusting the CRPIX values
-    wcs_header["CRPIX1"] -= cutout_lims[0, 0]
-    wcs_header["CRPIX2"] -= cutout_lims[1, 0]
-
-    # Adding the physical wcs keywords
-    wcs_header.set("WCSNAMEP", "PHYSICAL", "name of world coordinate system alternate P")
-    wcs_header.set("WCSAXESP", 2, "number of WCS physical axes")
-    
-    wcs_header.set("CTYPE1P", "RAWX", "physical WCS axis 1 type CCD col")
-    wcs_header.set("CUNIT1P", "PIXEL", "physical WCS axis 1 unit")
-    wcs_header.set("CRPIX1P", 1, "reference CCD column")
-    wcs_header.set("CRVAL1P", cutout_lims[0, 0] + 1, "value at reference CCD column")
-    wcs_header.set("CDELT1P", 1.0, "physical WCS axis 1 step")
-                
-    wcs_header.set("CTYPE2P", "RAWY", "physical WCS axis 2 type CCD col")
-    wcs_header.set("CUNIT2P", "PIXEL", "physical WCS axis 2 unit")
-    wcs_header.set("CRPIX2P", 1, "reference CCD row")
-    wcs_header.set("CRVAL2P", cutout_lims[1, 0] + 1, "value at reference CCD row")
-    wcs_header.set("CDELT2P", 1.0, "physical WCS axis 2 step")
-
-    return wcs.WCS(wcs_header)
-        
-
-def remove_sip_coefficients(hdu_header):
-    """
-    Remove standard sip coefficient keywords for a fits header.
-
-    Parameters
-    ----------
-    hdu_header : ~astropy.io.fits.Header
-        The header from which SIP keywords will be removed.  This is done in place.
-    """
-
-    for lets in product(["A", "B"], ["", "P"]):
-        lets = ''.join(lets)
-
-        key = "{}_ORDER".format(lets)
-        if key in hdu_header.keys():
-            del hdu_header["{}_ORDER".format(lets)]
-
-        key = "{}_DMAX".format(lets)
-        if key in hdu_header.keys():
-            del hdu_header["{}_DMAX".format(lets)]
-        
-        for i, j in product([0, 1, 2, 3], [0, 1, 2, 3]):
-            key = "{}_{}_{}".format(lets, i, j)
-            if key in hdu_header.keys():
-                del hdu_header["{}_{}_{}".format(lets, i, j)]
-#### FUNCTIONS FOR UTILS ####
 
 
 def _hducut(img_hdu, center_coord, cutout_size, correct_wcs=False, verbose=False):
@@ -222,7 +92,7 @@ def _hducut(img_hdu, center_coord, cutout_size, correct_wcs=False, verbose=False
         print("Original image shape: {}".format(img_data.shape))
 
     # Get cutout limits
-    cutout_lims = _get_cutout_limits(img_wcs, center_coord, cutout_size)
+    cutout_lims = get_cutout_limits(img_wcs, center_coord, cutout_size)
 
     if verbose:
         print("xmin,xmax: {}".format(cutout_lims[0]))
@@ -263,7 +133,7 @@ def _hducut(img_hdu, center_coord, cutout_size, correct_wcs=False, verbose=False
         print("Image cutout shape: {}".format(img_cutout.shape))
 
     # Getting the cutout wcs
-    cutout_wcs = _get_cutout_wcs(img_wcs, cutout_lims)
+    cutout_wcs = get_cutout_wcs(img_wcs, cutout_lims)
 
     # Updating the header with the new wcs info
     if no_sip:
@@ -271,7 +141,8 @@ def _hducut(img_hdu, center_coord, cutout_size, correct_wcs=False, verbose=False
     else:
         hdu_header.update(cutout_wcs.to_header(relax=True))  # relax arg is for sip distortions if they exist
 
-    # Naming the extension
+    # Naming the extension and preserving the original name
+    hdu_header["O_EXT_NM"] = (hdu_header["EXTNAME"], "Original extension name.")
     hdu_header["EXTNAME"] = "CUTOUT"
 
     # Moving the filename, if present, into the ORIG_FLE keyword
@@ -314,43 +185,6 @@ def _save_fits(cutout_hdus, output_path, center_coord):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore") 
         cutout_hdulist.writeto(output_path, overwrite=True, checksum=True)
-        
-
-    
-def _parse_size_input(cutout_size):
-    """
-    Makes the given cutout size into a length 2 array.
-
-    Parameters
-    ----------
-    cutout_size : int, array-like, `~astropy.units.Quantity`
-        The size of the cutout array. If ``cutout_size`` is a scalar number or a scalar 
-        `~astropy.units.Quantity`, then a square cutout of ``cutout_size`` will be created.  
-        If ``cutout_size`` has two elements, they should be in ``(ny, nx)`` order.  Scalar numbers 
-        in ``cutout_size`` are assumed to be in units of pixels. `~astropy.units.Quantity` objects 
-        must be in pixel or angular units.
-
-    Returns
-    -------
-    response : array
-        Length two cutout size array, in the form [ny, nx].
-    """
-
-    # Making size into an array [ny, nx]
-    if np.isscalar(cutout_size):
-        cutout_size = np.repeat(cutout_size, 2)
-
-    if isinstance(cutout_size, u.Quantity):
-        cutout_size = np.atleast_1d(cutout_size)
-        if len(cutout_size) == 1:
-            cutout_size = np.repeat(cutout_size, 2)
-
-    if len(cutout_size) > 2:
-        warnings.warn("Too many dimensions in cutout size, only the first two will be used.",
-                      InputWarning)
-        cutout_size = cutout_size[:2]
-
-    return cutout_size
 
 
 def _parse_extensions(infile_exts, infile_name, user_exts):
@@ -419,7 +253,7 @@ def fits_cut(input_files, coordinates, cutout_size, correct_wcs=False, extension
         and does not include distortions.
     extension : int, list of ints, None, or 'all'
         Optional, default None. Default is to cutout the first extension that has image data.
-        The user can also supply one or more extensions to cutout from (integers), or "all".
+       The user can also supply one or more extensions to cutout from (integers), or "all".
     single_outfile : bool 
         Default True. If true return all cutouts in a single fits file with one cutout per extension,
         if False return cutouts in individual fits files. If returing a single file the filename will 
@@ -455,7 +289,7 @@ def fits_cut(input_files, coordinates, cutout_size, correct_wcs=False, extension
         coordinates = SkyCoord(coordinates, unit='deg')
 
     # Turning the cutout size into a 2 member array
-    cutout_size = _parse_size_input(cutout_size)
+    cutout_size = parse_size_input(cutout_size)
 
     # Making the cutouts
     cutout_hdu_dict = {}
@@ -483,7 +317,11 @@ def fits_cut(input_files, coordinates, cutout_size, correct_wcs=False, extension
                         cutout.header["EMPTY"] = (True, "Indicates no data in cutout image.")
                         num_empty += 1
 
+                    # Adding a few more keywords
                     cutout.header["ORIG_EXT"] = (ind, "Extension in original file.")
+                    if not cutout.header.get("ORIG_FLE") and hdulist[0].header.get("FILENAME"):
+                        cutout.header["ORIG_FLE"] = hdulist[0].header.get("FILENAME")
+                    
                     cutout_hdu_dict[in_fle] = cutout_hdu_dict.get(in_fle, []) + [cutout]
                     
                 except OSError as err:
@@ -683,7 +521,7 @@ def img_cut(input_files, coordinates, cutout_size, stretch='asinh', minmax_perce
         coordinates = SkyCoord(coordinates, unit='deg')
 
     # Turning the cutout size into a 2 member array
-    cutout_size = _parse_size_input(cutout_size)
+    cutout_size = parse_size_input(cutout_size)
 
     # Applying the default scaling
     if (minmax_percent is None) and (minmax_value is None):
@@ -779,4 +617,149 @@ def img_cut(input_files, coordinates, cutout_size, stretch='asinh', minmax_perce
     return cutout_path
     
     
+
+def _combine_headers(headers):
     
+    uniform_cards = []
+    varying_keywords = []
+    n_vk = 0
+    
+    for kwd in headers[0]:
+        
+        # Skip checksums etc
+        if kwd in ('S_REGION', 'CHECKSUM', 'DATASUM'):
+            continue
+        
+        if (np.array([x[kwd] for x in headers[1:]]) == headers[0][kwd]).all():
+            uniform_cards.append(headers[0].cards[kwd])
+        else:
+            n_vk += 1
+            for i, hdr in enumerate(headers):
+                varying_keywords.append((f"F{i+1:02}_K{n_vk:02}", kwd, "Keyword"))
+                varying_keywords.append((f"F{i+1:02}_V{n_vk:02}", hdr[kwd], "Value"))
+                varying_keywords.append((f"F{i+1:02}_C{n_vk:02}", hdr.comments[kwd], "Comment"))
+
+    # TODO: Add wcs checking? How?
+                
+    return fits.Header(uniform_cards+varying_keywords)
+
+
+def _combine_imgs(template, img_arrs):
+    
+    comb_img = np.full(template.shape, np.nan, dtype=float)
+    
+    for i,img in enumerate(img_arrs):
+        comb_img[template == i] = img[template == i]
+        
+    return comb_img   
+
+
+def build_mean_templates(img_arrs, no_data_val=np.nan):
+    """All input arrays must be the same shape"""
+
+    img_arrs = np.array(img_arrs)  # making sure we have a numpy array
+
+    if np.isnan(no_data_val):
+        templates = (~np.isnan(img_arrs)).astype(float)
+    else:
+        templates = (img_arrs != no_data_val).astype(float)
+
+    multiplier_arr = 1/np.sum(templates, axis=0)
+    for t_arr in templates:
+        t_arr *= multiplier_arr
+
+    return templates
+
+
+def combine_cutouts(cutout_fles, templates, null_value=np.nan, ouput_file="./cutout.fits"):
+    """
+    TODO: Document
+    """
+
+    # Open all the files
+    cutout_hdus = [fits.open(fle) for fle in cutout_fles]
+
+    if templates = "mean":
+        templates = build_mean_templates([hdu[1].data for hdu in cutout_hdus], no_data_val=null_value)
+    # TODO: Add more templates checking here
+
+
+    hdu_list = [] 
+
+    for ext in range(1,len(cutout_hdu_1)):
+        new_header = combine_headers([hdu[ext].header for hdu in cutout_hdus])
+        
+        new_img = combine_imgs(template, [hdu[ext].data for hdu in cutout_hdus])
+        hdu_list.append(fits.ImageHDU(data=new_img, header=new_header))
+
+    # setup output path
+        
+    _save_fits(hdu_list, output_path=ouput_file,
+               center_coord=SkyCoord(f"{cutout_hdus[0][0].header['RA_OBJ']} {cutout_hdus[0][0].header['DEC_OBJ']}",
+                                     unit='deg')) 
+
+
+class CutoutsCombiner():
+    """
+    Class for combining cutouts.
+    """
+
+    def __init__(self):
+
+        self.combine_function = None
+        self.input_hdus
+        
+
+    def load(fle_list, exts=None):
+        """
+        Load cutouts files and grad desired hdus
+        """
+        cutout_hdus = [fits.open(fle) for fle in cutout_fles]
+        
+        if exts is None:
+            # Go ahead and deal with possible presence of a primaryHeader and no data as first ext
+            if not cutout_hdus[0].data:
+                self.input_hdus = [hdu[1:] for hdu in cutout_hdus]
+            else:
+                self.input_hdus = cutout_hdus
+        else:
+            self.input_hdus = [hdu[exts] for hdu in cutout_hdus]
+
+        
+        
+    def combine(self, output_file="./cutout.fits"):
+
+        hdu_list = []
+
+        
+
+        
+        
+        
+
+        
+def build_combine_function(template_hdu_arr, no_data_val=np.nan):
+    img_arrs = [hdu.data for hdu in template_hdu_arr]
+    img_arrs = np.array(img_arrs)  # making sure we have a numpy array
+
+    if np.isnan(no_data_val):
+        templates = (~np.isnan(img_arrs)).astype(float)
+    else:
+        templates = (img_arrs != no_data_val).astype(float)
+
+    multiplier_arr = 1/np.sum(templates, axis=0)
+    for t_arr in templates:
+        t_arr *= multiplier_arr
+
+    def combine_function(cutout_hdu_arr):
+        cutout_imgs = [hdu.data for hdu in cutout_hdu_arr]
+        nans = np.bitwise_and.reduce(np.isnan(im_arrs), axis=0)
+        
+        cutout_imgs[np.isnan(im_arrs)] = 0  # don't want any nans because they mess up multiple/add
+
+        combined_img = np.sum(templates*cutout_imgs, axis=0)
+        combined_img[nans] = np.nan  # putting nans back if we need to
+
+        reurn combined_img
+
+    return combine_function

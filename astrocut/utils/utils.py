@@ -2,13 +2,17 @@
 
 """This module includes a variety of functions that may be used by multiple modules."""
 
+import warnings
 import numpy as np
 
+from datetime import date
 from itertools import product
 
 from astropy import wcs
+from astropy.io import fits
 from astropy import units as u
 
+from .. import __version__
 from ..exceptions import InvalidQueryError
 
 
@@ -175,3 +179,36 @@ def remove_sip_coefficients(hdu_header):
             key = "{}_{}_{}".format(lets, i, j)
             if key in hdu_header.keys():
                 del hdu_header["{}_{}_{}".format(lets, i, j)]
+
+
+def save_fits(cutout_hdus, output_path, center_coord):
+    """
+    Save one or more cutout hdus to a single fits file.
+
+    Parameters
+    ----------
+    cutout_hdus : list or `~astropy.io.fits.hdu.image.ImageHDU`
+        The `~astropy.io.fits.hdu.image.ImageHDU` object(s) to be written to the fits file.
+    output_path : str
+        The full path to the output fits file.
+    center_coord : `~astropy.coordinates.sky_coordinate.SkyCoord`
+        The center coordinate of the image cutouts.
+    """
+
+    if isinstance(cutout_hdus, fits.hdu.image.ImageHDU):
+        cutout_hdus = [cutout_hdus]
+    
+    # Setting up the Primary HDU
+    primary_hdu = fits.PrimaryHDU()
+    primary_hdu.header.extend([("ORIGIN", 'STScI/MAST', "institution responsible for creating this file"),
+                               ("DATE", str(date.today()), "file creation date"),
+                               ('PROCVER', __version__, 'software version'),
+                               ('RA_OBJ', center_coord.ra.deg, '[deg] right ascension'),
+                               ('DEC_OBJ', center_coord.dec.deg, '[deg] declination')])
+
+    cutout_hdulist = fits.HDUList([primary_hdu] + cutout_hdus)
+
+    # Writing out the hdu often causes a warning as the ORIG_FLE card description is truncated
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore") 
+        cutout_hdulist.writeto(output_path, overwrite=True, checksum=True)

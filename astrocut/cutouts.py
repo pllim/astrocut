@@ -7,7 +7,6 @@ import warnings
 import numpy as np
 
 from time import time
-from datetime import date
 from itertools import product
 
 from astropy import log
@@ -21,8 +20,7 @@ from astropy.visualization import (SqrtStretch, LogStretch, AsinhStretch, SinhSt
 
 from PIL import Image
 
-from . import __version__
-from .utils.utils import parse_size_input, get_cutout_limits, get_cutout_wcs, remove_sip_coefficients
+from .utils.utils import parse_size_input, get_cutout_limits, get_cutout_wcs, remove_sip_coefficients, save_fits
 from .exceptions import InputWarning, DataWarning, InvalidQueryError, InvalidInputError
 
 
@@ -152,39 +150,6 @@ def _hducut(img_hdu, center_coord, cutout_size, correct_wcs=False, verbose=False
     hdu = fits.ImageHDU(header=hdu_header, data=img_cutout)
 
     return hdu
-
-
-def _save_fits(cutout_hdus, output_path, center_coord):
-    """
-    Save one or more cutout hdus to a single fits file.
-
-    Parameters
-    ----------
-    cutout_hdus : list or `~astropy.io.fits.hdu.image.ImageHDU`
-        The `~astropy.io.fits.hdu.image.ImageHDU` object(s) to be written to the fits file.
-    output_path : str
-        The full path to the output fits file.
-    center_coord : `~astropy.coordinates.sky_coordinate.SkyCoord`
-        The center coordinate of the image cutouts.
-    """
-
-    if isinstance(cutout_hdus, fits.hdu.image.ImageHDU):
-        cutout_hdus = [cutout_hdus]
-    
-    # Setting up the Primary HDU
-    primary_hdu = fits.PrimaryHDU()
-    primary_hdu.header.extend([("ORIGIN", 'STScI/MAST', "institution responsible for creating this file"),
-                               ("DATE", str(date.today()), "file creation date"),
-                               ('PROCVER', __version__, 'software version'),
-                               ('RA_OBJ', center_coord.ra.deg, '[deg] right ascension'),
-                               ('DEC_OBJ', center_coord.dec.deg, '[deg] declination')])
-
-    cutout_hdulist = fits.HDUList([primary_hdu] + cutout_hdus)
-
-    # Writing out the hdu often causes a warning as the ORIG_FLE card description is truncated
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore") 
-        cutout_hdulist.writeto(output_path, overwrite=True, checksum=True)
 
 
 def _parse_extensions(infile_exts, infile_name, user_exts):
@@ -347,7 +312,7 @@ def fits_cut(input_files, coordinates, cutout_size, correct_wcs=False, extension
                                                                     str(cutout_size[1]).replace(' ', ''))
         cutout_path = os.path.join(output_dir, cutout_path)
         cutout_hdus = [x for fle in cutout_hdu_dict for x in cutout_hdu_dict[fle]]
-        _save_fits(cutout_hdus, cutout_path, coordinates)
+        save_fits(cutout_hdus, cutout_path, coordinates)
 
         if verbose:
             print("Cutout fits file: {}".format(cutout_path))
@@ -369,7 +334,7 @@ def fits_cut(input_files, coordinates, cutout_size, correct_wcs=False, extension
                                                                      str(cutout_size[0]).replace(' ', ''), 
                                                                      str(cutout_size[1]).replace(' ', ''))
             cutout_path = os.path.join(output_dir, filename)
-            _save_fits(cutout_list, cutout_path, coordinates)
+            save_fits(cutout_list, cutout_path, coordinates)
             
             if verbose:
                 print(cutout_path)
@@ -615,151 +580,3 @@ def img_cut(input_files, coordinates, cutout_size, stretch='asinh', minmax_perce
         print("Total time: {:.2} sec".format(time()-start_time))
 
     return cutout_path
-    
-    
-
-def _combine_headers(headers):
-    
-    uniform_cards = []
-    varying_keywords = []
-    n_vk = 0
-    
-    for kwd in headers[0]:
-        
-        # Skip checksums etc
-        if kwd in ('S_REGION', 'CHECKSUM', 'DATASUM'):
-            continue
-        
-        if (np.array([x[kwd] for x in headers[1:]]) == headers[0][kwd]).all():
-            uniform_cards.append(headers[0].cards[kwd])
-        else:
-            n_vk += 1
-            for i, hdr in enumerate(headers):
-                varying_keywords.append((f"F{i+1:02}_K{n_vk:02}", kwd, "Keyword"))
-                varying_keywords.append((f"F{i+1:02}_V{n_vk:02}", hdr[kwd], "Value"))
-                varying_keywords.append((f"F{i+1:02}_C{n_vk:02}", hdr.comments[kwd], "Comment"))
-
-    # TODO: Add wcs checking? How?
-                
-    return fits.Header(uniform_cards+varying_keywords)
-
-
-def _combine_imgs(template, img_arrs):
-    
-    comb_img = np.full(template.shape, np.nan, dtype=float)
-    
-    for i,img in enumerate(img_arrs):
-        comb_img[template == i] = img[template == i]
-        
-    return comb_img   
-
-
-def build_mean_templates(img_arrs, no_data_val=np.nan):
-    """All input arrays must be the same shape"""
-
-    img_arrs = np.array(img_arrs)  # making sure we have a numpy array
-
-    if np.isnan(no_data_val):
-        templates = (~np.isnan(img_arrs)).astype(float)
-    else:
-        templates = (img_arrs != no_data_val).astype(float)
-
-    multiplier_arr = 1/np.sum(templates, axis=0)
-    for t_arr in templates:
-        t_arr *= multiplier_arr
-
-    return templates
-
-
-def combine_cutouts(cutout_fles, templates, null_value=np.nan, ouput_file="./cutout.fits"):
-    """
-    TODO: Document
-    """
-
-    # Open all the files
-    cutout_hdus = [fits.open(fle) for fle in cutout_fles]
-
-    if templates = "mean":
-        templates = build_mean_templates([hdu[1].data for hdu in cutout_hdus], no_data_val=null_value)
-    # TODO: Add more templates checking here
-
-
-    hdu_list = [] 
-
-    for ext in range(1,len(cutout_hdu_1)):
-        new_header = combine_headers([hdu[ext].header for hdu in cutout_hdus])
-        
-        new_img = combine_imgs(template, [hdu[ext].data for hdu in cutout_hdus])
-        hdu_list.append(fits.ImageHDU(data=new_img, header=new_header))
-
-    # setup output path
-        
-    _save_fits(hdu_list, output_path=ouput_file,
-               center_coord=SkyCoord(f"{cutout_hdus[0][0].header['RA_OBJ']} {cutout_hdus[0][0].header['DEC_OBJ']}",
-                                     unit='deg')) 
-
-
-class CutoutsCombiner():
-    """
-    Class for combining cutouts.
-    """
-
-    def __init__(self):
-
-        self.combine_function = None
-        self.input_hdus
-        
-
-    def load(fle_list, exts=None):
-        """
-        Load cutouts files and grad desired hdus
-        """
-        cutout_hdus = [fits.open(fle) for fle in cutout_fles]
-        
-        if exts is None:
-            # Go ahead and deal with possible presence of a primaryHeader and no data as first ext
-            if not cutout_hdus[0].data:
-                self.input_hdus = [hdu[1:] for hdu in cutout_hdus]
-            else:
-                self.input_hdus = cutout_hdus
-        else:
-            self.input_hdus = [hdu[exts] for hdu in cutout_hdus]
-
-        
-        
-    def combine(self, output_file="./cutout.fits"):
-
-        hdu_list = []
-
-        
-
-        
-        
-        
-
-        
-def build_combine_function(template_hdu_arr, no_data_val=np.nan):
-    img_arrs = [hdu.data for hdu in template_hdu_arr]
-    img_arrs = np.array(img_arrs)  # making sure we have a numpy array
-
-    if np.isnan(no_data_val):
-        templates = (~np.isnan(img_arrs)).astype(float)
-    else:
-        templates = (img_arrs != no_data_val).astype(float)
-
-    multiplier_arr = 1/np.sum(templates, axis=0)
-    for t_arr in templates:
-        t_arr *= multiplier_arr
-
-    def combine_function(cutout_hdu_arr):
-        cutout_imgs = [hdu.data for hdu in cutout_hdu_arr]
-        nans = np.bitwise_and.reduce(np.isnan(im_arrs), axis=0)
-        
-        cutout_imgs[np.isnan(im_arrs)] = 0  # don't want any nans because they mess up multiple/add
-
-        combined_img = np.sum(templates*cutout_imgs, axis=0)
-        combined_img[nans] = np.nan  # putting nans back if we need to
-
-        reurn combined_img
-
-    return combine_function

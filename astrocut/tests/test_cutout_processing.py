@@ -1,19 +1,12 @@
-import pytest
-
 import numpy as np
 from os import path
-from re import findall
 
 from astropy.io import fits
-from astropy import wcs
 from astropy.coordinates import SkyCoord
-from astropy import units as u
-
-from PIL import Image
 
 from .utils_for_test import create_test_imgs
 from .. import cutout_processing, cutouts
-from ..exceptions import InputWarning, InvalidInputError, InvalidQueryError
+
 
 def test_combine_headers():
 
@@ -37,42 +30,42 @@ def test_combine_headers():
 
 
 def test_default_combine():
-    img_1 = np.array([[1,1],[0,0]])
+    img_1 = np.array([[1, 1], [0, 0]])
     hdu_1 = fits.ImageHDU(img_1)
 
-    img_2 = np.array([[0,0],[1,1]])
+    img_2 = np.array([[0, 0], [1, 1]])
     hdu_2 = fits.ImageHDU(img_2)
 
     # Three input arrays no overlapping pixels
     combine_func = cutout_processing.build_default_combine_function([hdu_1, hdu_2], 0)
-    assert (combine_func([hdu_1,hdu_2]) == 1).all()
-    assert (combine_func([hdu_2,hdu_1]) == 0).all()
+    assert (combine_func([hdu_1, hdu_2]) == 1).all()
+    assert (combine_func([hdu_2, hdu_1]) == 0).all()
 
-    img_3 = np.array([[0,1],[1,0]])
+    img_3 = np.array([[0, 1], [1, 0]])
     hdu_3 = fits.ImageHDU(img_3)
 
     combine_func = cutout_processing.build_default_combine_function([hdu_1, hdu_2, hdu_3], 0)
 
-    im4 = np.array([[4,5],[0,0]])
-    im5 = np.array([[0,0],[4,5]])
-    im6 = np.array([[0,3],[8,0]])
-    comb_img = combine_func([im4,im5,im6])
-    assert (comb_img == [[4, 4],[6, 5]]).all()
+    im4 = np.array([[4, 5], [0, 0]])
+    im5 = np.array([[0, 0], [4, 5]])
+    im6 = np.array([[0, 3], [8, 0]])
+    comb_img = combine_func([im4, im5, im6])
+    assert (comb_img == [[4, 4], [6, 5]]).all()
 
-    im4 = np.array([[4,5],[-3,8]])
-    im5 = np.array([[5,2],[4,5]])
-    im6 = np.array([[4,3],[8,9]])
-    assert (combine_func([im4,im5,im6]) == comb_img).all()
+    im4 = np.array([[4, 5], [-3, 8]])
+    im5 = np.array([[5, 2], [4, 5]])
+    im6 = np.array([[4, 3], [8, 9]])
+    assert (combine_func([im4, im5, im6]) == comb_img).all()
 
     # Two input arrays, with nans and a missing pixel
-    img_1 = np.array([[1,np.nan],[np.nan,np.nan]])
+    img_1 = np.array([[1, np.nan], [np.nan, np.nan]])
     hdu_1 = fits.ImageHDU(img_1)
 
-    img_2 = np.array([[np.nan,np.nan],[1,1]])
+    img_2 = np.array([[np.nan, np.nan], [1, 1]])
     hdu_2 = fits.ImageHDU(img_2)
 
     combine_func = cutout_processing.build_default_combine_function([hdu_1, hdu_2])
-    assert np.allclose(combine_func([hdu_1,hdu_2]) , [[ 1, np.nan], [ 1,  1]], equal_nan=True)
+    assert np.allclose(combine_func([hdu_1, hdu_2]) , [[1, np.nan], [1,  1]], equal_nan=True)
 
 
 def test_combiner(tmpdir):

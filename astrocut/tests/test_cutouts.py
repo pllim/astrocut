@@ -294,8 +294,8 @@ def test_img_cut(tmpdir, capsys):
     hdu.close()
 
     with pytest.raises(InvalidInputError):
-        color_png = cutouts.img_cut(test_images[:3], center_coord, cutout_size,
-                                    colorize=True, img_format='png', output_dir=tmpdir)
+        cutouts.img_cut(test_images[:3], center_coord, cutout_size,
+                        colorize=True, img_format='png', output_dir=tmpdir)
 
     
     

@@ -1,20 +1,11 @@
-import pytest
-
 import numpy as np
-from os import path
-from re import findall
 
 from astropy.io import fits
 from astropy import wcs
 from astropy.coordinates import SkyCoord
 from astropy import units as u
-from astropy.utils.exceptions import AstropyDeprecationWarning
 
-from PIL import Image
-
-from .utils_for_test import create_test_imgs
 from ..utils import utils
-from ..exceptions import InputWarning, InvalidInputError, InvalidQueryError
 
 
 def test_get_cutout_limits():

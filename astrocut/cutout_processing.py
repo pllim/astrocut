@@ -2,7 +2,6 @@
 
 """This module contains various cutout post-processing tools."""
 
-import os
 import warnings
 import numpy as np
 
@@ -88,7 +87,7 @@ def build_default_combine_function(template_hdu_arr, no_data_val=np.nan):
         templates = (img_arrs != no_data_val).astype(float)
 
     multiplier_arr = np.sum(templates, axis=0)
-    multiplier_arr = np.divide(1, multiplier_arr, where=multiplier_arr!=0)
+    multiplier_arr = np.divide(1, multiplier_arr, where=(multiplier_arr != 0))
     for t_arr in templates:
         t_arr *= multiplier_arr
 
@@ -141,7 +140,7 @@ class CutoutsCombiner():
             self.combine_images = img_combiner
         else:  # load up the default combiner
             self.build_img_combiner(build_default_combine_function,
-                                    builder_args=[self.input_hdulists[0],np.nan])
+                                    builder_args=[self.input_hdulists[0], np.nan])
         
             
     def load(self, fle_list, exts=None):
@@ -169,7 +168,7 @@ class CutoutsCombiner():
         else:
             self.input_hdulists = [hdu[exts] for hdu in cutout_hdulists]
 
-        self.input_hdulists = np.transpose(self.input_hdulists) # Transposing so hdus to be combings are on the short axis
+        self.input_hdulists = np.transpose(self.input_hdulists)  # Transposing so hdus to be combings are on the short axis
 
         # Try to find the center coordinate
         try:
@@ -177,14 +176,14 @@ class CutoutsCombiner():
             dec = cutout_hdulists[0][0].header['DEC_OBJ']
             self.center_coord = SkyCoord(f"{ra} {dec}", unit='deg')
         except KeyError:
-            warnings.warn(f"Could not find RA/Dec header kewords, center coord will be wrong.",
+            warnings.warn("Could not find RA/Dec header keywords, center coord will be wrong.",
                           DataWarning)
-            self.center_coord = SkyCoord(f"0 0", unit='deg')
+            self.center_coord = SkyCoord("0 0", unit='deg')
             
         except ValueError:
             warnings.warn(f"Invalid RA/Dec values, center coord will be wrong.",
                           DataWarning)
-            self.center_coord = SkyCoord(f"0 0", unit='deg')
+            self.center_coord = SkyCoord("0 0", unit='deg')
 
             
     def build_img_combiner(self, function_builder, builder_args):

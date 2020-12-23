@@ -14,7 +14,6 @@ from astropy import units as u
 from astropy.io import fits
 from astropy.coordinates import SkyCoord
 from astropy import wcs
-from astropy.utils.exceptions import AstropyDeprecationWarning
 from astropy.visualization import (SqrtStretch, LogStretch, AsinhStretch, SinhStretch, LinearStretch,
                                    MinMaxInterval, ManualInterval, AsymmetricPercentileInterval)
 
@@ -140,7 +139,7 @@ def _hducut(img_hdu, center_coord, cutout_size, correct_wcs=False, verbose=False
         hdu_header.update(cutout_wcs.to_header(relax=True))  # relax arg is for sip distortions if they exist
 
     # Naming the extension and preserving the original name
-    hdu_header["O_EXT_NM"] = (hdu_header["EXTNAME"], "Original extension name.")
+    hdu_header["O_EXT_NM"] = (hdu_header.get("EXTNAME"), "Original extension name.")
     hdu_header["EXTNAME"] = "CUTOUT"
 
     # Moving the filename, if present, into the ORIG_FLE keyword
@@ -317,7 +316,11 @@ def fits_cut(input_files, coordinates, cutout_size, correct_wcs=False, extension
         if verbose:
             print("Cutout fits file: {}".format(cutout_path))
 
+        all_paths = cutout_path
+
     else:  # one output file per input file
+        all_paths = []
+        
         if verbose:
             print("Cutout fits files:")
             
@@ -335,6 +338,8 @@ def fits_cut(input_files, coordinates, cutout_size, correct_wcs=False, extension
                                                                      str(cutout_size[1]).replace(' ', ''))
             cutout_path = os.path.join(output_dir, filename)
             save_fits(cutout_list, cutout_path, coordinates)
+
+            all_paths.append(cutout_path)
             
             if verbose:
                 print(cutout_path)
@@ -342,7 +347,7 @@ def fits_cut(input_files, coordinates, cutout_size, correct_wcs=False, extension
     if verbose:
         print("Total time: {:.2} sec".format(time()-start_time))
 
-    return cutout_path
+    return all_paths
 
 
 def normalize_img(img_arr, stretch='asinh', minmax_percent=None, minmax_value=None, invert=False):
@@ -534,16 +539,16 @@ def img_cut(input_files, coordinates, cutout_size, stretch='asinh', minmax_perce
         
     # Setting up the output file(s) and writing them
     if colorize:
-
-        cutouts = [x for fle in input_files for x in cutout_hdu_dict[fle] if cutout_hdu_dict.get(fle)]
+        cutouts = [x for fle in input_files for x in cutout_hdu_dict.get(fle,[])]
         
         # Doing checks correct number of cutouts
         if len(cutouts) < 3:
-            raise InvalidInputError("Color cutouts require 3 input images (RGB).")
+            raise InvalidInputError(("Color cutouts require 3 input images (RGB)."
+                                     "If you supplied 3 images one of the cutouts may have been empty."))
         if len(cutouts) > 3:
             warnings.warn("Too many inputs for a color cutout, only the first three will be used.",
                           InputWarning)
-            cutouts = input_files[:3]
+            cutouts = cutouts[:3]
 
             
         cutout_path = "{}_{:7f}_{:7f}_{}-x-{}_astrocut.{}".format(cutout_prefix,
@@ -553,6 +558,7 @@ def img_cut(input_files, coordinates, cutout_size, stretch='asinh', minmax_perce
                                                                   str(cutout_size[1]).replace(' ', ''),
                                                                   img_format.lower()) 
         cutout_path = os.path.join(output_dir, cutout_path)
+
         Image.fromarray(np.dstack([cutouts[0], cutouts[1], cutouts[2]]).astype(np.uint8)).save(cutout_path)
           
     else:

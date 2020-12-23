@@ -87,7 +87,8 @@ def build_default_combine_function(template_hdu_arr, no_data_val=np.nan):
     else:
         templates = (img_arrs != no_data_val).astype(float)
 
-    multiplier_arr = 1/np.sum(templates, axis=0)
+    multiplier_arr = np.sum(templates, axis=0)
+    multiplier_arr = np.divide(1, multiplier_arr, where=multiplier_arr!=0)
     for t_arr in templates:
         t_arr *= multiplier_arr
 
@@ -112,7 +113,7 @@ def build_default_combine_function(template_hdu_arr, no_data_val=np.nan):
         nans = np.bitwise_and.reduce(np.isnan(cutout_imgs), axis=0)
         
         cutout_imgs[np.isnan(cutout_imgs)] = 0  # don't want any nans because they mess up multiple/add
-
+ 
         combined_img = np.sum(templates*cutout_imgs, axis=0)
         combined_img[nans] = np.nan  # putting nans back if we need to
 

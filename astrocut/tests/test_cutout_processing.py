@@ -30,39 +30,32 @@ def test_combine_headers():
 
 
 def test_default_combine():
-    img_1 = np.array([[1, 1], [0, 0]])
-    hdu_1 = fits.ImageHDU(img_1)
+    hdu_1 = fits.ImageHDU(np.array([[1, 1], [0, 0]]))
+    hdu_2 = fits.ImageHDU(np.array([[0, 0], [1, 1]]))
 
-    img_2 = np.array([[0, 0], [1, 1]])
-    hdu_2 = fits.ImageHDU(img_2)
-
-    # Three input arrays no overlapping pixels
+    # Two input arrays no overlapping pixels
     combine_func = cutout_processing.build_default_combine_function([hdu_1, hdu_2], 0)
     assert (combine_func([hdu_1, hdu_2]) == 1).all()
     assert (combine_func([hdu_2, hdu_1]) == 0).all()
 
-    img_3 = np.array([[0, 1], [1, 0]])
-    hdu_3 = fits.ImageHDU(img_3)
-
+    # Three input arrays overlapping pixels
+    hdu_3 = fits.ImageHDU(np.array([[0, 1], [1, 0]]))
     combine_func = cutout_processing.build_default_combine_function([hdu_1, hdu_2, hdu_3], 0)
 
-    im4 = np.array([[4, 5], [0, 0]])
-    im5 = np.array([[0, 0], [4, 5]])
-    im6 = np.array([[0, 3], [8, 0]])
+    im4 = fits.ImageHDU(np.array([[4, 5], [0, 0]]))
+    im5 = fits.ImageHDU(np.array([[0, 0], [4, 5]]))
+    im6 = fits.ImageHDU(np.array([[0, 3], [8, 0]]))
     comb_img = combine_func([im4, im5, im6])
     assert (comb_img == [[4, 4], [6, 5]]).all()
 
-    im4 = np.array([[4, 5], [-3, 8]])
-    im5 = np.array([[5, 2], [4, 5]])
-    im6 = np.array([[4, 3], [8, 9]])
+    im4 = fits.ImageHDU(np.array([[4, 5], [-3, 8]]))
+    im5 = fits.ImageHDU(np.array([[5, 2], [4, 5]]))
+    im6 = fits.ImageHDU(np.array([[4, 3], [8, 9]]))
     assert (combine_func([im4, im5, im6]) == comb_img).all()
 
     # Two input arrays, with nans and a missing pixel
-    img_1 = np.array([[1, np.nan], [np.nan, np.nan]])
-    hdu_1 = fits.ImageHDU(img_1)
-
-    img_2 = np.array([[np.nan, np.nan], [1, 1]])
-    hdu_2 = fits.ImageHDU(img_2)
+    hdu_1 = fits.ImageHDU(np.array([[1, np.nan], [np.nan, np.nan]]))
+    hdu_2 = fits.ImageHDU(np.array([[np.nan, np.nan], [1, 1]]))
 
     combine_func = cutout_processing.build_default_combine_function([hdu_1, hdu_2])
     assert np.allclose(combine_func([hdu_1, hdu_2]), [[1, np.nan], [1, 1]], equal_nan=True)

@@ -168,7 +168,7 @@ class CutoutsCombiner():
         else:
             self.input_hdulists = [hdu[exts] for hdu in cutout_hdulists]
 
-        self.input_hdulists = np.transpose(self.input_hdulists)  # Transposing so hdus to be combings are on the short axis
+        self.input_hdulists = np.transpose(self.input_hdulists)  # Transpose so hdus to be combined on short axis
 
         # Try to find the center coordinate
         try:
@@ -181,7 +181,7 @@ class CutoutsCombiner():
             self.center_coord = SkyCoord("0 0", unit='deg')
             
         except ValueError:
-            warnings.warn(f"Invalid RA/Dec values, center coord will be wrong.",
+            warnings.warn("Invalid RA/Dec values, center coord will be wrong.",
                           DataWarning)
             self.center_coord = SkyCoord("0 0", unit='deg')
 

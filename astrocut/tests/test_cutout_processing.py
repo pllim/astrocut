@@ -65,7 +65,7 @@ def test_default_combine():
     hdu_2 = fits.ImageHDU(img_2)
 
     combine_func = cutout_processing.build_default_combine_function([hdu_1, hdu_2])
-    assert np.allclose(combine_func([hdu_1, hdu_2]) , [[1, np.nan], [1,  1]], equal_nan=True)
+    assert np.allclose(combine_func([hdu_1, hdu_2]), [[1, np.nan], [1, 1]], equal_nan=True)
 
 
 def test_combiner(tmpdir):

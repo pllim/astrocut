@@ -10,7 +10,7 @@ on:
 
 jobs:
   tests:
-    name: ${{ matrix.name }}
+    name: Name ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: true
@@ -59,7 +59,7 @@ jobs:
         python-version: ${{ matrix.python }}
     - name: Cleaning apt-get before install
       if: startsWith(matrix.os, 'ubuntu')
-      run: sudo apt-get clean 
+      run: sudo apt-get update 
     - name: Install language-pack-de and tzdata
       if: startsWith(matrix.os, 'ubuntu')
       run: sudo apt-get --fix-missing install language-pack-de tzdata
@@ -102,7 +102,7 @@ jobs:
         python-version: ${{ matrix.python }}
     - name: Cleaning apt-get before install
       if: startsWith(matrix.os, 'ubuntu')
-      run: sudo apt-get clean 
+      run: sudo apt-get update 
     - name: Install language-pack-de and tzdata
       if: startsWith(matrix.os, 'ubuntu')
       run: sudo apt-get --fix-missing install language-pack-de tzdata
